@@ -6,6 +6,7 @@
   :dependencies [[org.clojure/clojure "1.11.1"]
                  [clj-http "3.12.3"]              ;HTTP request
                  [metosin/jsonista "0.3.7"]       ;JSON
+                 [techascent/tech.ml.dataset "7.062"] ;dataset
 
                  ]
   :main project_x.core

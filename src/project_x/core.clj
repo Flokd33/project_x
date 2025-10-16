@@ -5,7 +5,7 @@
   )
 
 (defn -main []
-  (println "Let's go!")
-  (data/get-income-statement "AAPL")
-  (println "Ready!")
+  (println "Start!")
+  (data/save-clean-data!)
+  (println "End!")
   )
