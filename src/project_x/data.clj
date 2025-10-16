@@ -66,11 +66,11 @@
    ;{:name "sp500"           :id "SP500"}                   ; risk appetite proxy
    {:name "vix"             :id "VIXCLS"}                   ; risk/vol sentiment proxy
    ; sector
-   {:name "gaming_equipment_pce":id "DREQRC1Q027SBEA"}      ; Personal consumption expenditures: Durable goods: Recreational goods and vehicles
+   {:name "gaming_equipment_pce" :id "DREQRC1Q027SBEA"}      ; Personal consumption expenditures: Durable goods: Recreational goods and vehicles
    ])
 
 ;----------------------------------------------------TOOLS--------------------------------------------------------------
-(defn json->kmap [^String s] (jsonista/read-value s (jsonista/object-mapper {:decode-key-fn true})))
+(defn json->kmap [^String s] (jsonista/read-value s (jsonista/object-mapper {:decode-key-fn keyword})))
 
 (def iso (DateTimeFormatter/ofPattern "yyyy-MM-dd"))
 
