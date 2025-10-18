@@ -181,7 +181,7 @@
 
         totals (map (fn [[d xs]]
                       {:date   d
-                       :series "vg_total"
+                       :series "vg_hardware_total"
                        :value  (str (reduce + (map #(Long/parseLong (:value %)) xs)))
                        :src    "VGCHARTZ"})
                     (group-by :date eoq-points))]
