@@ -3,15 +3,17 @@
     [clj-http.client :as http]
     [jsonista.core :as jsonista]
     [tech.v3.dataset :as ds]
+    [clojure.string :as str]
+    [clojure.java.io :as io]
     )
   (:import
-    (java.time LocalDate Year Month)
+    (java.time LocalDate Year Month Instant ZoneId ZonedDateTime)
     (java.time.format DateTimeFormatter)))
 
 
 (comment
   "ETL process using FMP + FRED, extract .csv for R modelling
-  30 years of quarterly data
+   Starting from 09/2006 as this is the first steam data available => ~19 years of data
 
   Dependent variable
   • ea_rev_q (FMP, quarterly income statement) — Proxy for *EA’s financial performance*, chosen because revenue is the most direct and least noisy link to external demand and FX translation effects.
@@ -22,13 +24,15 @@
   • payrolls (PAYEMS) — Proxy for *labor-market strength and income base*; rising employment supports household income and gaming spend.
   • us_retail_sales (RSAFS) — Proxy for *aggregate consumer demand / discretionary consumption*; correlated with video game and hardware sales.
   • usd_gbp (DEXUSUK) — Proxy for *foreign-exchange translation risk*; EA reports in USD but sells significantly in the UK and Europe, so GBP/USD captures translation effects on reported revenue.
+  • usd-eur
   • ust10y (DGS10) — Proxy for *macro discount rate / policy stance*; higher yields reflect tighter financial conditions and can weigh on consumer and market sentiment.
   • vix (VIXCLS) — Proxy for *market risk aversion / volatility sentiment*; spikes in VIX align with global risk-off periods that often dampen discretionary consumption.
 
   Sector / industry indicator (FRED, quarterly)
-  • gaming_equipment_pce (DREQRC1Q027SBEA) — Proxy for *industry-specific hardware and console cycle*; uses U.S. Personal Consumption Expenditures on Durable Recreational Goods & Vehicles as a long-history quarterly stand-in for gaming hardware demand.
-  • The best mainstream sector proxy is Personal consumption expenditures (DIPERC1A027NBEA): Video and audio equipment, computers, and related services: Information processing equipment BUT only annual data available
-  • We could also create a console_cycle_index using VGChartz Global Hardware Sales (Weekly estimates for PlayStation, Xbox, Nintendo) BUT data only available from 2020...
+  • pce_recreactional_goods (DREQRC1Q027SBEA) - U.S. Personal Consumption Expenditures on Durable Recreational Goods & Vehicles as a long-history quarterly stand-in for gaming hardware demand.
+  • pce_service (PCES) - Personal Consumption Expenditures: Services
+  • Steam users from Steamdb
+  • Hardware sales index -> total of all console sales from VGChartz
 
   Implementation notes
   • Frequency & dating: FRED requested as quarterly end-of-period; normalized to calendar quarter-end using (to-eoq).
@@ -51,7 +55,7 @@
 (def endpoint-income-statement "https://financialmodelingprep.com/api/v3/income-statement/")
 (def endpoint-fred-series "https://api.stlouisfed.org/fred/series/observations?")
 
-(def start-date "1995-09-30")
+(def start-date "2006-09-30")
 (def end-date   "2025-06-30")
 
 (def fred-series
@@ -62,17 +66,23 @@
    {:name "us_retail_sales" :id "RSAFS"}                    ; US retail sales => proxy for consumer demand
    ; markets / FX / rates
    {:name "usd_gbp"         :id "DEXUSUK"}                  ; EA reports in USD, but EU/UK sales are meaningful. Broad trade-weighted U.S. Dollar Index (DTWEXBGS) and USD/EUR (DEXUSEU) do not have 30 years of history
+   {:name "usd_eur"         :id "DEXUSEU"}
    {:name "ust10y"          :id "DGS10"}                    ; 10y treasury => discount rate proxy
    ;{:name "sp500"           :id "SP500"}                   ; risk appetite proxy
    {:name "vix"             :id "VIXCLS"}                   ; risk/vol sentiment proxy
    ; sector
    {:name "pce_recreactional_goods" :id "DREQRC1Q027SBEA"}      ; pce_recreactional_goods: Durable goods: Recreational goods and vehicles
    {:name "pce_service" :id "PCES"}                         ;Personal Consumption Expenditures: Services
-   {:name "ppi_game_software"    :id "PCU5112105112107" :frequency "m"} ;production price index
+   ;{:name "ppi_game_software"    :id "PCU5112105112107" :frequency "m"} ;Producer Price Index by Industry: Software Publishers: Game Software Publishing
    ])
 
 ;----------------------------------------------------TOOLS--------------------------------------------------------------
 (defn json->kmap [^String s] (jsonista/read-value s (jsonista/object-mapper {:decode-key-fn keyword})))
+
+(defn clean-key [k]
+  (-> k name
+      (clojure.string/replace #"\"" "")   ; remove double quotes
+      keyword))
 
 (def iso (DateTimeFormatter/ofPattern "yyyy-MM-dd"))
 
@@ -99,7 +109,7 @@
     (map (fn [m]
            {:date (to-eoq (:date m))     ; fiscal quarter end dates that don’t perfectly align to calendar EOQ. (:fillingDate m)
             :series "ea_rev_q"
-            :value (str (:revenue m))     ; FMP fields we can use -> :revenue :grossProfit :ebitda :netIncome
+            :value (str (:revenue m))     ; FMP fields we can use -> :revenue :grossProfit :ebitda :netIncome :researchAndDevelopmentExpenses :researchanddevelopmentexpensesoftwareexcludingacquiredinprocesscost
             :src "FMP"
             })
          res)))
@@ -138,25 +148,85 @@
       (map (fn [m] {:date (:qdate m) :series (:series m) :value (:value m) :src (:src m)}) mapped))))
 
 ;----------------------------------------------------VGChartz-------------------------------------------------
-;Monthly Hardware Comparisons - Global - Monthly Global hardware data grouped by platform
+;Monthly global hardware data, by platform
 ;https://www.vgchartz.com/tools/hw_date.php?reg=Global&ending=Monthly
 
+(defn get-vgchartz-data []
+  (let [raw-html (slurp "resources/vgchartz_raw_hardware.txt")
+        series-matches (re-seq #"(?s)name:'([^']+)'\s*,\s*data\s*:\s*\[(.*?)\]" raw-html)
+        epoch->date (fn [ms]
+                      (-> (java.time.Instant/ofEpochMilli (Long/parseLong ms))
+                          (java.time.LocalDateTime/ofInstant (java.time.ZoneOffset/UTC))
+                          .toLocalDate
+                          str))
+
+        q? (fn [date-str]
+             (let [m (.getMonthValue (java.time.LocalDate/parse date-str))]
+               (contains? #{3 6 9 12} m)))
+
+        per-console (mapcat
+                      (fn [[_ console block]]
+                        (map (fn [[_ x y]]
+                               {:date   (epoch->date x)
+                                :series (str "vg_" (clojure.string/replace console " " "_"))
+                                :value  (str y)
+                                :src    "VGCHARTZ"})
+                             (re-seq #"(?s)\{\s*x\s*:\s*(\d+)\s*,\s*y\s*:\s*(\d+)\s*\}" block)))
+                      series-matches)
+
+        ;; keep only quarter-end months and normalize date to month-end
+        eoq-points (->> per-console
+                        (filter #(q? (:date %)))
+                        (map #(update % :date to-eoq)))
+
+        totals (map (fn [[d xs]]
+                      {:date   d
+                       :series "vg_total"
+                       :value  (str (reduce + (map #(Long/parseLong (:value %)) xs)))
+                       :src    "VGCHARTZ"})
+                    (group-by :date eoq-points))]
+    (->> totals                         ;we just keep the total as consoles are changing
+         (sort-by :date))))
 ;----------------------------------------------------STEAMDB-------------------------------------------------
-; Steam USERS
+; Steam users since 2004
 ;https://steamdb.info/app/753/charts/#18y
+
+(defn get-steam-data []
+  (let [raw-data (ds/->dataset "resources/steamdb_raw_users.csv" {:key-fn clean-key})
+        clean    (->> (ds/rows raw-data)
+                      (remove #(nil? (:Users %))))
+        mapped   (map (fn [row]
+                        {:dateTime (:DateTime row)
+                         :date     (to-eoq (subs (str (:DateTime row)) 0 10)) ; EOQ
+                         :series   "steam_users"
+                         :value    (str (:Users row))
+                         :src      "STEAMDB"})
+                      clean)]
+    ; sort by dateTime and keep latest record
+    (->> mapped
+         (sort-by :dateTime)
+         (group-by :date)
+         (map (fn [[_ vals]] (last vals)))
+         (map #(dissoc % :dateTime))
+         (sort-by :date))))
 
 ;----------------------------------------------------FETCH AND CLEAN-------------------------------------------------
 (defn fetch-all-data []
   (let [fmp-data  (get-income-statement "EA")
         fred-data (mapcat get-fred-series fred-series)
-        all-data  (concat fmp-data fred-data)
+        steam-data (get-steam-data)
+        vgchartz-data (get-vgchartz-data)
+        all-data  (concat fmp-data fred-data steam-data vgchartz-data)              ;steam-data vgchartz-data
         clean-data (->> all-data
                         (remove #(= "." (:value %))) ;these are current quarter FRED values
-                        (filter #(not (.isBefore (parse-date (:date %)) (parse-date start-date)))) ; keep only dates >= start-date, FMP doesn't have start date on income statement
+                        (filter #(and
+                                  (not (.isBefore (parse-date (:date %)) (parse-date start-date)))
+                                  (not (.isAfter (parse-date (:date %)) (parse-date end-date)))
+                                  )) ; keep only dates >= start-date, FMP doesn't have start date on income statement
                         )
         df-data (ds/->dataset clean-data {:key-fn keyword})
         x (println (let [vals (map (fn [date] (count (second date)) ) (group-by :date clean-data))]
-                    (str "avg count per date: " (/ (reduce + vals) (count vals)))
+                    (str "avg count per date: " (/ (reduce + vals) (count vals) 1.0))
                     ))
         ]
     df-data))
