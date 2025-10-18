@@ -66,7 +66,9 @@
    ;{:name "sp500"           :id "SP500"}                   ; risk appetite proxy
    {:name "vix"             :id "VIXCLS"}                   ; risk/vol sentiment proxy
    ; sector
-   {:name "gaming_equipment_pce" :id "DREQRC1Q027SBEA"}      ; Personal consumption expenditures: Durable goods: Recreational goods and vehicles
+   {:name "pce_recreactional_goods" :id "DREQRC1Q027SBEA"}      ; pce_recreactional_goods: Durable goods: Recreational goods and vehicles
+   {:name "pce_service" :id "PCES"}                         ;Personal Consumption Expenditures: Services
+   {:name "ppi_game_software"    :id "PCU5112105112107" :frequency "m"} ;production price index
    ])
 
 ;----------------------------------------------------TOOLS--------------------------------------------------------------
@@ -103,23 +105,38 @@
          res)))
 ;----------------------------------------------------FRED---------------------------------------------------------------
 (defn get-fred-series [series]
-  "Get quarterly data (EOP) for a given FRED series map {:id ... :name ...}"
-  (let [url  (str endpoint-fred-series
-                  "series_id=" (:id series)
-                  "&api_key="   api-key-fred
-                  "&file_type=json"
-                  "&frequency=q"
-                  "&limit=100000"
-                  "&aggregation_method=eop"
-                  "&observation_start=" start-date
-                  "&observation_end="   end-date)
-        res  (-> (slurp url) json->kmap :observations)]
-    (map (fn [x]
-           {:date   (to-eoq (:date x))   ;the value is end-of-quarter, but the date FRED returns is the first day of the quarter
-            :series (:name series)
-            :value  (:value x)
-            :src    "FRED"})
-         res)))
+  "Get data for a given FRED series map {:id ... :name ... :frequency ...}
+   - if :frequency is \"m\" we will fetch monthly and collapse to quarter-end by taking the last month in each quarter."
+  (let [freq  (or (:frequency series) "q")
+        url   (str endpoint-fred-series
+                   "series_id=" (:id series)
+                   "&api_key="   api-key-fred
+                   "&file_type=json"
+                   "&frequency=" freq
+                   "&limit=100000"
+                   "&aggregation_method=eop"
+                   "&observation_start=" start-date
+                   "&observation_end="   end-date)
+        observations (-> (slurp url) json->kmap :observations)
+        mapped (map (fn [x]
+                      {:orig_date (:date x)         ; original monthly/quarter date returned by FRED
+                       :qdate     (to-eoq (:date x)) ; mapped to quarter-end (yyyy-MM-dd)
+                       :series    (:name series)
+                       :value     (:value x)
+                       :src       "FRED"})
+                    observations)]
+    (if (= freq "m")
+      (->> mapped
+           (group-by :qdate)
+           (map (fn [[qdate vals]]
+                  (let [latest (apply max-key #(parse-date (:orig_date %)) vals)]
+                    {:date  qdate
+                     :series (:series latest)
+                     :value (:value latest)
+                     :src  (:src latest)})))
+           (sort-by #(parse-date (:date %))))
+      (map (fn [m] {:date (:qdate m) :series (:series m) :value (:value m) :src (:src m)}) mapped))))
+
 
 ;----------------------------------------------------FETCH AND CLEAN-------------------------------------------------
 (defn fetch-all-data []
