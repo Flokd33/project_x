@@ -71,7 +71,7 @@
    ;{:name "sp500"           :id "SP500"}                   ; risk appetite proxy
    {:name "vix"             :id "VIXCLS"}                   ; risk/vol sentiment proxy
    ; sector
-   {:name "pce_recreactional_goods" :id "DREQRC1Q027SBEA"}      ; pce_recreactional_goods: Durable goods: Recreational goods and vehicles
+   {:name "pce_recreational_goods" :id "DREQRC1Q027SBEA"}      ; pce_recreational_goods: Durable goods: Recreational goods and vehicles
    {:name "pce_service" :id "PCES"}                         ;Personal Consumption Expenditures: Services
    ;{:name "ppi_game_software"    :id "PCU5112105112107" :frequency "m"} ;Producer Price Index by Industry: Software Publishers: Game Software Publishing
    ])
@@ -235,6 +235,3 @@
 (defn save-clean-data! []
  (let [clean-data-ds (fetch-all-data) ]
   (ds/write! clean-data-ds "resources/clean-data.csv")))
-
-
-
