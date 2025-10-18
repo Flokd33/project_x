@@ -139,9 +139,10 @@
 
 ;----------------------------------------------------VGChartz-------------------------------------------------
 ;Monthly Hardware Comparisons - Global - Monthly Global hardware data grouped by platform
+;https://www.vgchartz.com/tools/hw_date.php?reg=Global&ending=Monthly
 
 ;----------------------------------------------------STEAMDB-------------------------------------------------
-; USERS
+; Steam USERS
 ;https://steamdb.info/app/753/charts/#18y
 
 ;----------------------------------------------------FETCH AND CLEAN-------------------------------------------------
