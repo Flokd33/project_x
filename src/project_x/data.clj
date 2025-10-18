@@ -137,6 +137,12 @@
            (sort-by #(parse-date (:date %))))
       (map (fn [m] {:date (:qdate m) :series (:series m) :value (:value m) :src (:src m)}) mapped))))
 
+;----------------------------------------------------VGChartz-------------------------------------------------
+;Monthly Hardware Comparisons - Global - Monthly Global hardware data grouped by platform
+
+;----------------------------------------------------STEAMDB-------------------------------------------------
+; USERS
+;https://steamdb.info/app/753/charts/#18y
 
 ;----------------------------------------------------FETCH AND CLEAN-------------------------------------------------
 (defn fetch-all-data []
