@@ -173,4 +173,4 @@
 ;----------------------------------------------------SAVE--------------------------------------------------------
 (defn save-clean-data! []
  (let [clean-data-ds (fetch-all-data) ]
-  (ds/write! clean-data-ds "resources/clean-data.csv")))
+  (ds/write! clean-data-ds "~/clean-data.csv")))
