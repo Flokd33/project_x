@@ -92,7 +92,7 @@
 ;https://www.vgchartz.com/tools/hw_date.php?reg=Global&ending=Monthly
 
 (defn get-vgchartz-data []
-  (let [raw-html (slurp "~/vgchartz_raw_hardware.txt")
+  (let [raw-html (slurp "resources/vgchartz_raw_hardware.txt")
         series-matches (re-seq #"(?s)name:'([^']+)'\s*,\s*data\s*:\s*\[(.*?)\]" raw-html)
         epoch->date (fn [ms]
                       (-> (java.time.Instant/ofEpochMilli (Long/parseLong ms))
@@ -132,7 +132,7 @@
 ;https://steamdb.info/app/753/charts/#18y
 
 (defn get-steam-data []
-  (let [raw-data (ds/->dataset "~/steamdb_raw_users.csv" {:key-fn clean-key})
+  (let [raw-data (ds/->dataset "resources/steamdb_raw_users.csv" {:key-fn clean-key})
         clean    (->> (ds/rows raw-data)
                       (remove #(nil? (:Users %))))
         mapped   (map (fn [row]
@@ -173,4 +173,4 @@
 ;----------------------------------------------------SAVE--------------------------------------------------------
 (defn save-clean-data! []
  (let [clean-data-ds (fetch-all-data) ]
-  (ds/write! clean-data-ds "~/clean-data.csv")))
+  (ds/write! clean-data-ds "resources/clean-data.csv")))
